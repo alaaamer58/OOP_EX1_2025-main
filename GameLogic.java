@@ -3,6 +3,8 @@ import java.util.*;
 public class GameLogic implements PlayableLogic{
     private  Disc[][] board; //8x8
 
+    private Stack<Disc[][]> boardStateStack = new Stack<>();
+
     private int[][] directions = {{-1, 0}, // Up
             {1, 0},  // Down
             {0, -1}, // Left
@@ -49,7 +51,7 @@ public class GameLogic implements PlayableLogic{
 
     }
 
-    public void flipDisc(Position p, Disc disc, List<Position> flippedDiscs, Map<Position, Disc> originalDiscsAtFlippedPositions) {
+    public void flipDisc(Position p, Disc disc) {
         int row = p.row();
         int col = p.col();
         Player currPlayer = disc.getOwner();
@@ -73,13 +75,12 @@ public class GameLogic implements PlayableLogic{
                     // Flip the opponent's discs between the player's discs
                     for (Position pos : discsToFlip) {
                         board[pos.row()][pos.col()] = disc;  // Flip to the player's disc
-                        flippedDiscs.add(pos);  // Track the flipped position
                     }
                     break;
                 } else {
                     // Collect opponent's discs that might be flipped
                     discsToFlip.add(new Position(currRow, currCol));
-                    originalDiscsAtFlippedPositions.put(new Position(currRow, currCol), currDisc);  // Store the original disc at the position
+
                 }
 
                 currCol += dcol;
@@ -105,8 +106,7 @@ public class GameLogic implements PlayableLogic{
                     // Flip the opponent's discs to SimpleDisc
                     if (currDisc.getOwner().isPlayerOne() != currPlayer.isPlayerOne()) {
                         board[currRow][currCol] = new SimpleDisc(currPlayer);  // Flip to SimpleDisc
-                        flippedDiscs.add(new Position(currRow, currCol));  // Track the flipped position
-                        originalDiscsAtFlippedPositions.put(new Position(currRow, currCol), currDisc);  // Store the original disc
+
                     }
 
                     currRow += drow;
@@ -127,8 +127,7 @@ public class GameLogic implements PlayableLogic{
 
 
     public boolean isMoveValid(Position position) {
-        if (position.row() < 0 || position.row() >= boardSize ||
-                position.col() < 0 || position.col() >= boardSize ||
+        if (isInBounds(position.row(),position.col()) ||
                 board[position.row()][position.col()] != null) {
             return false;  // If the position is out of bounds or already occupied
         }
@@ -140,21 +139,44 @@ public class GameLogic implements PlayableLogic{
 
 
     @Override
-    public boolean locate_disc(Position a, Disc disc) {
-        if(!isMoveValid(a))
-            return false ;
+    public boolean locate_disc(Position position, Disc disc) {
+        if (!isMoveValid(position)) {
+            return false;
+        }
 
-        board[a.row()][a.col()] = disc;
 
-        List<Position> flippedDiscs = new ArrayList<>();
-        Map<Position,Disc> originalDiscsAtFlippedPositions = new HashMap<>();
+        saveBoardState();
 
-        flipDisc(a,disc,flippedDiscs,originalDiscsAtFlippedPositions);
-        Move move = new Move(a,disc, flippedDiscs, originalDiscsAtFlippedPositions);
+
+        board[position.row()][position.col()] = disc;
+
+
+        flipDisc(position, disc);
+
+
+        Move move = new Move(position, disc);
         moveStack.push(move);
-        isPlayer1Turn = !isPlayer1Turn;
+
+
+        changeTurn();
+
         return true;
     }
+
+    private void saveBoardState() {
+        Disc [][] boardCopy = new Disc[boardSize][boardSize];
+
+        for (int i = 0 ; i < boardSize; i++)
+        {
+            for (int j = 0 ; j < boardSize ; j++)
+            {
+                boardCopy[i][j] = board[i][j];
+            }
+        }
+        boardStateStack.push(boardCopy);
+
+    }
+
 
     @Override
     public Disc getDiscAtPosition(Position position)
@@ -305,27 +327,25 @@ public class GameLogic implements PlayableLogic{
 
     @Override
     public void undoLastMove() {
-        if(!moveStack.isEmpty())
-        {
+        if (!moveStack.isEmpty()) {
             Move lastMove = moveStack.pop();
             Position lastPosition = lastMove.position();
-            Disc lastDisc = lastMove.disc();
-            List<Position> flipedDisc = lastMove.flippedDiscs();
-            Map<Position,Disc> originalDiscsAtFlippedPositions = lastMove.originalDiscsAtFlippedPositions();
 
-            board[lastPosition.row()][lastPosition.col()] = null;
-
-            for (Position p : flipedDisc)
-            {
-                Disc originalDisc = originalDiscsAtFlippedPositions.get(p);
-                board[p.row()][p.col()] = originalDisc;
+            if (!boardStateStack.isEmpty()) {
+                Disc[][] previousBoardState = boardStateStack.pop();
+                for (int i = 0; i < board.length; i++) {
+                    for (int j = 0; j < board[i].length; j++) {
+                        board[i][j] = previousBoardState[i][j];
+                    }
+                }
             }
 
+
             changeTurn();
-
-
         }
     }
+
+
 
     public void changeTurn()
     {
