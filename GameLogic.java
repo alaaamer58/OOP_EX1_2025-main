@@ -55,8 +55,9 @@ public class GameLogic implements PlayableLogic{
         int row = p.row();
         int col = p.col();
         Player currPlayer = disc.getOwner();
+        List<Position> flippedBombPositions = new ArrayList<>();
 
-        // Loop through all 8 possible directions
+        // Standard flipping logic (like SimpleDisc)
         for (int[] direction : directions) {
             List<Position> discsToFlip = new ArrayList<>();
             int drow = direction[0];
@@ -68,53 +69,67 @@ public class GameLogic implements PlayableLogic{
                 Disc currDisc = board[currRow][currCol];
 
                 if (currDisc == null) {
-                    break;  // Stop if we hit an empty space
+                    break; // Stop if we hit an empty space
+                }
+
+                if (currDisc instanceof UnflippableDisc) {
+                    break; // Stop flipping in this direction if an UnflippableDisc is encountered
                 }
 
                 if (currDisc.getOwner().isPlayerOne() == currPlayer.isPlayerOne()) {
-                    // Flip the opponent's discs between the player's discs
+                    // Flip all opponent discs in between
                     for (Position pos : discsToFlip) {
-                        board[pos.row()][pos.col()] = disc;  // Flip to the player's disc
+                        Disc flippedDisc = board[pos.row()][pos.col()];
+                        System.out.println("Player " + (currPlayer.isPlayerOne() ? "1" : "2") + " flipped the ⬤ in (" + pos.row() + ", " + pos.col() + ")");
+
+                        if (flippedDisc instanceof BombDisc) {
+                            flippedBombPositions.add(pos); // Track flipped BombDisc
+                            board[pos.row()][pos.col()] = new BombDisc(currPlayer); // Keep as BombDisc but change ownership
+                        } else {
+                            board[pos.row()][pos.col()] = new SimpleDisc(currPlayer); // Flip to SimpleDisc
+                        }
                     }
                     break;
                 } else {
-                    // Collect opponent's discs that might be flipped
-                    discsToFlip.add(new Position(currRow, currCol));
-
+                    discsToFlip.add(new Position(currRow, currCol)); // Add opponent discs to be flipped
                 }
 
-                currCol += dcol;
                 currRow += drow;
+                currCol += dcol;
             }
         }
 
-        // Special case for BombDisc - Flip opponent's discs to SimpleDisc
-        if (disc instanceof BombDisc) {
-            for (int[] direction : directions) {
-                int drow = direction[0];
-                int dcol = direction[1];
-                int currRow = row + drow;
-                int currCol = col + dcol;
+        // Special handling for flipped BombDiscs
+        for (Position bombPos : flippedBombPositions) {
+            flipSurroundingDiscs(bombPos, currPlayer);
+        }
+    }
 
-                while (isInBounds(currRow, currCol)) {
-                    Disc currDisc = board[currRow][currCol];
+    // Helper function to flip all surrounding discs of a BombDisc
+    private void flipSurroundingDiscs(Position bombPos, Player currPlayer) {
+        for (int[] direction : directions) {
+            int drow = direction[0];
+            int dcol = direction[1];
+            int currRow = bombPos.row() + drow;
+            int currCol = bombPos.col() + dcol;
 
-                    if (currDisc == null) {
-                        break;  // Stop if we hit an empty space
-                    }
+            if (isInBounds(currRow, currCol)) {
+                Disc currDisc = board[currRow][currCol];
 
-                    // Flip the opponent's discs to SimpleDisc
-                    if (currDisc.getOwner().isPlayerOne() != currPlayer.isPlayerOne()) {
-                        board[currRow][currCol] = new SimpleDisc(currPlayer);  // Flip to SimpleDisc
-
-                    }
-
-                    currRow += drow;
-                    currCol += dcol;
+                if (currDisc != null && currDisc.getOwner().isPlayerOne() != currPlayer.isPlayerOne() && !(currDisc instanceof UnflippableDisc)) {
+                    System.out.println("Player " + (currPlayer.isPlayerOne() ? "1" : "2") + " flipped the ⬤ in (" + currRow + ", " + currCol + ")");
+                    board[currRow][currCol] = new SimpleDisc(currPlayer); // Flip to SimpleDisc
                 }
             }
         }
     }
+
+
+
+
+
+
+
 
 
 
@@ -127,7 +142,8 @@ public class GameLogic implements PlayableLogic{
 
 
     public boolean isMoveValid(Position position) {
-        if (isInBounds(position.row(),position.col()) ||
+        if (position.row() < 0 || position.row() >= boardSize ||
+                position.col() < 0 || position.col() >= boardSize ||
                 board[position.row()][position.col()] != null) {
             return false;  // If the position is out of bounds or already occupied
         }
@@ -211,7 +227,7 @@ public class GameLogic implements PlayableLogic{
 
     @Override
     public int countFlips(Position a) {
-        int flips = 0;
+        int totalFlips = 0;
         Player currPlayer = isPlayer1Turn ? player1 : player2;
         int row = a.row();
         int col = a.col();
@@ -221,72 +237,75 @@ public class GameLogic implements PlayableLogic{
             return 0; // The position is already occupied
         }
 
-        // For BombDisc, check all 8 directions and flip all the opponent's discs
-        if (board[row][col] instanceof BombDisc) {
-            for (int[] direction : directions) {
-                int drow = direction[0];
-                int dcol = direction[1];
-                int currRow = row + drow;
-                int currCol = col + dcol;
+        // Track BombDisc positions to handle cascading flips later
+        List<Position> flippedBombPositions = new ArrayList<>();
 
-                while (isInBounds(currRow, currCol)) {
-                    Disc currDisc = board[currRow][currCol];
+        // Count flips in all directions
+        for (int[] direction : directions) {
+            int dRow = direction[0];
+            int dCol = direction[1];
+            int currRow = row + dRow;
+            int currCol = col + dCol;
 
-                    if (currDisc == null) {
-                        break; // Stop if an empty space is encountered
-                    }
+            int flipsInDirection = 0;
+            boolean hasOpponentDisc = false;
 
-                    if (currDisc.getOwner().isPlayerOne() != currPlayer.isPlayerOne()) {
-                        flips++; // Count each opponent's disc
-                    }
+            while (isInBounds(currRow, currCol)) {
+                Disc currentDisc = board[currRow][currCol];
 
-                    currRow += drow;
-                    currCol += dcol;
+                if (currentDisc == null) {
+                    break; // No more discs to flip if there's an empty space
                 }
+
+                if (currentDisc instanceof UnflippableDisc) {
+                    // Stop counting in this direction if an UnflippableDisc is encountered
+                    flipsInDirection = 0;
+                    break;
+                }
+
+                if (currentDisc.getOwner().isPlayerOne() == currPlayer.isPlayerOne()) {
+                    // If we encounter our own disc
+                    if (hasOpponentDisc) {
+                        totalFlips += flipsInDirection; // Add the flips in this direction
+                    }
+                    break; // Stop once we encounter our own disc
+                } else {
+                    hasOpponentDisc = true;
+                    flipsInDirection++; // Count opponent's discs
+
+                    if (currentDisc instanceof BombDisc) {
+                        flippedBombPositions.add(new Position(currRow, currCol)); // Track BombDisc for cascading flips
+                    }
+                }
+
+                currRow += dRow;
+                currCol += dCol;
             }
-        } else {
-            // For SimpleDisc, check flips in each direction
+        }
+
+
+        // Handle cascading flips for BombDisc
+        for (Position bombPos : flippedBombPositions) {
             for (int[] direction : directions) {
                 int dRow = direction[0];
                 int dCol = direction[1];
-                int currRow = row + dRow;
-                int currCol = col + dCol;
+                int bombRow = bombPos.row() + dRow;
+                int bombCol = bombPos.col() + dCol;
 
-                int flipsInDirection = 0;
-                boolean hasOpponentDisc = false;
+                if (isInBounds(bombRow, bombCol)) {
+                    Disc surroundingDisc = board[bombRow][bombCol];
 
-                while (isInBounds(currRow, currCol)) {
-                    Disc currentDisc = board[currRow][currCol];
-
-                    if (currentDisc == null) {
-                        break; // No more discs to flip if there's an empty space
+                    // Count valid flips for discs surrounding the BombDisc
+                    if (surroundingDisc != null && surroundingDisc.getOwner().isPlayerOne() != currPlayer.isPlayerOne() && !(surroundingDisc instanceof UnflippableDisc)) {
+                        totalFlips++; // Increment flip count for surrounding discs
                     }
-
-                    if (currentDisc.getOwner().isPlayerOne() == currPlayer.isPlayerOne()) {
-                        // If we encounter our own disc, check if we've passed opponent discs
-                        if (hasOpponentDisc) {
-                            flips += flipsInDirection;
-                        }
-                        break; // Stop once we encounter our own disc
-                    } else {
-                        hasOpponentDisc = true;
-                        flipsInDirection++; // Count opponent's discs
-                    }
-
-                    currRow += dRow;
-                    currCol += dCol;
                 }
             }
         }
 
-        // If it's UnflippableDisc, return 0 since no flips happen
-        if (board[row][col] instanceof UnflippableDisc) {
-            return 0;
-        }
-
-
-        return flips;
+        return totalFlips;
     }
+
 
 
 
